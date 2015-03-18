@@ -1,0 +1,123 @@
+---
+title: "Machine Learning - Predicting Exercise Activity"
+author: "David A"
+date: "Friday, March 13, 2015"
+output: html_document
+---
+
+
+## Introduction
+This report describes the development of a predictive model using machine learning techniques that can be used to predict the type of human movement from a feature set comprising motion data recorded from a wearable device.
+
+The scripts in this report have been prepared and executed on a Windows desktop PC environment:
+```{r, echo=FALSE}
+sessionInfo()$R.version$version.string; sessionInfo()$platform
+```
+
+The strategy to build and validate the model included steps to: 
+<ol>
+  <li>Acquire the data.</li>
+  <li>Perform some data exploration (not included in this report).</li>
+  <li>Clean the data.</li>
+  <li>Partition the training data into a training data set (60%) and a validation data set (40%).</li>
+  <li>Train a random forest model on the training subset.</li>
+  <li>Check the performance of the model against the validation subset.</li>
+</ol>
+Finally the model was used to classify a test data set.
+
+
+## Data Sourcing and Preparation
+
+The following packages are used in the processing with a seed set to ensure reproducibility.
+
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+library("randomForest")
+set.seed(1234)
+```
+
+The training data was downloaded to a local working directory from 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv 
+and read into a local dataframe with some cleaning of missing and invalid values.
+
+```{r}
+rawTrnData <- read.csv("pml-training.csv", na.strings=c("NA", "", "#DIV/0!", strip.white=T))
+dim(rawTrnData)
+```
+
+Exploratory data analysis (not shown here) indicated that many columns had a large proportion of missing values.  Those columns were removed from the data set as well as any metadata and temporal attributes describing the sample row.
+
+```{r}
+TrnData <- rawTrnData[,colSums(is.na(rawTrnData)) < nrow(rawTrnData)-1000]
+TrnData <- subset(TrnData[,], select=-c(X, user_name, new_window, num_window, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+dim(TrnData)
+```
+
+The test data was downloaded to a local working directory from:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv and processed in the same way as the training data.
+
+```{r}
+rawTestData <- read.csv("pml-testing.csv", na.strings=c("NA", "", "#DIV/0!", strip.white=T))
+TestData <- rawTestData[,colSums(is.na(rawTestData)) != nrow(rawTestData)]
+TestData <- subset(TestData, select=-c(X, user_name, new_window, num_window, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+
+dim(TestData)
+```
+
+
+## Training the model
+
+The training data was partitioned into two subsets.  A 60% subset will be used to train the model and the 40% subset will be used to determine the "out of sample error" and check the accuracy of the model.
+
+```{r}
+inTrain <- createDataPartition(TrnData$classe, p=0.6, list=FALSE)
+TrnData60 <- TrnData[inTrain,]
+ValidData40 <- TrnData[-inTrain,]
+```
+
+On the machine with limited compute resources used for this study, it was found that the caret package did not complete training in reasonable time for the large training data set.  So after some trials it was decided to use the randomForest package which completed faster.
+
+```{r}
+# Train the model
+#model.rf <- randomForest(classe ~ ., data=TrnData60, importance=TRUE, proximity=TRUE)
+
+# Can have a look at the top 10 important variables
+sort(round(importance(model.rf),0)[1:10,6], decreasing = TRUE)
+```
+
+
+## Model Validation
+
+The performance of the model can be checked using the out of sample error, that is, the error when comparing the prediction from the cross validation set that was not used for training.
+
+```{r}
+# Cross Validation
+ValidDataPredict <- predict(model.rf, ValidData40)
+# get the accuracy
+sum(ValidDataPredict == ValidData40$classe)/length(ValidDataPredict)
+# View the confusion matrix
+confusionMatrix(ValidData40$classe, ValidDataPredict)
+```
+
+The model accurately predicts the classe in the validation data subset to 99%.
+
+
+## Classify the test data
+
+The model can now be used to predict the classe labels for the Test data.
+
+```{r}
+PredictTestData <- predict(model.rf, TestData)
+PredictTestData
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(PredictTestData)
+
+```
